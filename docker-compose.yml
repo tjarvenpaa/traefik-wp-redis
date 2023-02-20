@@ -1,0 +1,91 @@
+version: '3.9'
+networks:
+  back:
+  traefik:
+    external: false
+    driver: bridge
+    name: traefik
+
+services:
+  traefik: 
+    image: traefik:latest
+    restart: always
+    command: 
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true" # new
+      - "--certificatesresolvers.myresolver.acme.email=your@email.com" # new
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "8080:8080"
+      - "443:443"
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./letsencrypt:/letsencrypt"
+    networks:
+      - traefik
+
+
+  db:
+    image: mysql:5.7
+    volumes:
+    - db_data:/var/lib/mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: Qwerty1!
+      MYSQL_DATABASE: wpdb
+      MYSQL_USER: wpuser
+      MYSQL_PASSWORD: Ytrewq1!
+    networks:
+      - back
+
+
+  wordpress:
+    build: 
+      context: ./Wordpress
+    restart: always
+    depends_on:
+      - db
+    image: wordpress:latest
+    volumes:
+      - ./wordpress_data:/var/www/html:rw
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wpuser
+      WORDPRESS_DB_PASSWORD: Ytrewq1!
+      WORDPRESS_DB_NAME: wpdb
+    networks:
+      - back
+      - traefik
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik"
+      - "traefik.http.routers.wordpress.rule=Host(`hostname`)"
+      - "traefik.http.routers.wordpress.entrypoints=web"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
+      - "traefik.http.routers.wordpress.middlewares=redirect-to-https@docker"
+      - "traefik.http.routers.wordpress-secured.rule=Host(`hostname`)"
+      - "traefik.http.routers.wordpress-secured.entrypoints=websecure"
+      # Apply autentificiation with http challenge 
+      - "traefik.http.routers.wordpress-secured.tls=true"
+      - "traefik.http.routers.wordpress-secured.tls.certresolver=myresolver"
+
+  redis:
+    image: redis:6
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - back
+    # launch Redis in cache mode with :
+    #  - max memory up to 50% of your RAM if needed (--maxmemory 512mb)
+    #  - deleting oldest data when max memory is reached (--maxmemory-policy allkeys-lru)
+    entrypoint: redis-server 
+
+volumes:
+  db_data: {}
+  wordpress_data: {}
